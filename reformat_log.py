@@ -19,20 +19,21 @@ for arg in sys.argv:
         inputFileName = param[1]
     if param[0] == 'OUT': # Output file
         outputFileName = param[1]
-    if param[0] == 'DEL': # Deliminter (default = ' ')
+    if param[0] == 'DEL': # Delimiter (default = ' ')
         delimiter = param[1]
 
 if inputFileName==None or outputFileName==None:
-    print('Usage: %s IN=<input CSV file> OUT=<outputCSV file> KEY=<key> DIR=<direction>' % (sys.argv[0]))
+    print('Usage: %s IN=<input CSV file> OUT=<outputCSV file> DEL=<delimiter>' % (sys.argv[0]))
     print('      <input CSV file>  : Input CSV file.')
     print('      <output CSV file> : Output CSV file.')
+    print("      <delimiter>       : Delimiter for CSV file. Default is ' ' (space).")
     sys.exit()
 
 
 with open(inputFileName) as inputFile:
     csvReader = csv.reader(inputFile, delimiter=delimiter)
 
-    with open(outputFileName, "wb") as outputFile:
+    with open(outputFileName, "w") as outputFile:
         fileWriter = csv.writer(outputFile, delimiter=delimiter)
         for row in csvReader:
             outrow = []

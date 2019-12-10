@@ -97,7 +97,6 @@ int main(int argc, char* argv[])
     std::cerr << "    <hostname>  : IP or host name"                    << std::endl;
     std::cerr << "    <port>      : Port # (18944 in Slicer default)"   << std::endl;
     std::cerr << "    <IGTL type> : M = Transform; T = Tracking data"   << std::endl;
-    std::cerr << "    <channel>   : number of channels"                 << std::endl;
     std::cerr << "    <fps>       : Frequency (fps) to send coordinate" << std::endl;
     std::cerr << "    <file>      : Tracking file" << std::endl;
     exit(0);
@@ -114,10 +113,9 @@ int main(int argc, char* argv[])
     {
     type = TRACKING;
     }
-  int    nchannel = atoi(argv[4]);
-  double fps      = atof(argv[5]);
+  double fps      = atof(argv[4]);
   int    interval = (int) (1000.0 / fps);
-  std::string filename = argv[6];
+  std::string filename = argv[5];
 
 
   //------------------------------------------------------------
