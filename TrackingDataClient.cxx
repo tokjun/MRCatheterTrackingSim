@@ -63,10 +63,14 @@ typedef struct {
 
 typedef struct {
   double ts;
+  igtl::Matrix4x4 matrixCoil0;
   igtl::Matrix4x4 matrixCoil1;
   igtl::Matrix4x4 matrixCoil2;
   igtl::Matrix4x4 matrixCoil3;
   igtl::Matrix4x4 matrixCoil4;
+  igtl::Matrix4x4 matrixCoil5;
+  igtl::Matrix4x4 matrixCoil6;
+  igtl::Matrix4x4 matrixCoil7;
 } CatheterMatricesFrame;
 
 enum {
@@ -83,22 +87,28 @@ void  ReadFile(std::string filename, TrackingDataList& coordinates);
 void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frameList);
 void  ConvertTrackingData(TrackingDataList& coordinates, CatheterMatricesFrameList& frameList);
 int   SendTransformData(igtl::ClientSocket::Pointer& socket, igtl::TransformMessage::Pointer& transformMsg, MatrixFrame& mat);
-int   SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, CatheterMatricesFrame& mat);
+int   SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, CatheterMatricesFrame& mat, bool* mask);
+
+void PrintUsage(const char* progName)
+{
+  std::cerr << "Usage: " << progName << " <hostname> <port> <IGTL type> <fps> <file> <mask>"    << std::endl;
+  std::cerr << "    <hostname>  : IP or host name"                    << std::endl;
+  std::cerr << "    <port>      : Port # (18944 in Slicer default)"   << std::endl;
+  std::cerr << "    <IGTL type> : 'M' = Transform; 'T' = Tracking data; if 'T' is specified, <mask> must be given."   << std::endl;
+  std::cerr << "    <fps>       : Frequency (fps) to send coordinate" << std::endl;
+  std::cerr << "    <file>      : Tracking file" << std::endl;
+  std::cerr << "    <mask>      : Channel Mask (ex. '01100110')" << std::endl;
+}
 
 int main(int argc, char* argv[])
 {
   //------------------------------------------------------------
   // Parse Arguments
 
-  if (argc != 6) // check number of arguments
+  if (argc < 6 || argc > 7) // check number of arguments
     {
     // If not correct, print usage
-    std::cerr << "Usage: " << argv[0] << " <hostname> <port> <IGTL type> <fps> <file>"    << std::endl;
-    std::cerr << "    <hostname>  : IP or host name"                    << std::endl;
-    std::cerr << "    <port>      : Port # (18944 in Slicer default)"   << std::endl;
-    std::cerr << "    <IGTL type> : M = Transform; T = Tracking data"   << std::endl;
-    std::cerr << "    <fps>       : Frequency (fps) to send coordinate" << std::endl;
-    std::cerr << "    <file>      : Tracking file" << std::endl;
+    PrintUsage(argv[0]);
     exit(0);
     }
 
@@ -117,6 +127,33 @@ int main(int argc, char* argv[])
   int    interval = (int) (1000.0 / fps);
   std::string filename = argv[5];
 
+  bool chmask[8];
+  int nCh = 0;
+  if (type == TRACKING)
+    {
+    if (argc == 7 && strlen(argv[6]) == 8)
+      {
+      for (int i = 0; i < 8; i ++)
+        {
+        if (argv[6][i] == '1')
+          {
+          chmask[i] = true;
+          nCh ++;
+          }
+        else
+          {
+          chmask[i] = false;
+          }
+        }
+      }
+    else
+      {
+      PrintUsage(argv[0]);
+      exit(0);
+      }
+    }
+  std::cout << "Number of channels = " << nCh << std::endl;
+  
 
   //------------------------------------------------------------
   // Load Tracking Data
@@ -181,9 +218,9 @@ int main(int argc, char* argv[])
     igtl::TrackingDataMessage::Pointer trackingMsg;
     trackingMsg = igtl::TrackingDataMessage::New();
     
-    igtl::TrackingDataElement::Pointer trackElement[4];
+    igtl::TrackingDataElement::Pointer trackElement[nCh];
     
-    for (int coil = 0; coil < 4; coil ++)
+    for (int coil = 0; coil < nCh; coil ++)
       {
       std::stringstream ss;
       ss << "Tracker" << std::setfill('0') << std::setw(2) << coil;
@@ -199,7 +236,7 @@ int main(int argc, char* argv[])
     for (iter = cmFrameList.begin(); iter != cmFrameList.end(); iter ++)
       {
       trackingMsg->SetDeviceName("Tracker");
-      SendTrackingData(socket, trackingMsg, *iter);
+      SendTrackingData(socket, trackingMsg, *iter, chmask);
       igtl::Sleep(interval);
       }
     }
@@ -323,7 +360,6 @@ void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frame
     
 }
 
-
 void  ConvertTrackingData(TrackingDataList& coordinates, CatheterMatricesFrameList& frameList)
 {
 
@@ -335,30 +371,51 @@ void  ConvertTrackingData(TrackingDataList& coordinates, CatheterMatricesFrameLi
     {
     CatheterMatricesFrame frame;
     frame.ts = iter->ts;
-    
+
+    igtl::Matrix4x4& matrix0 = frame.matrixCoil0;
     igtl::Matrix4x4& matrix1 = frame.matrixCoil1;
     igtl::Matrix4x4& matrix2 = frame.matrixCoil2;
     igtl::Matrix4x4& matrix3 = frame.matrixCoil3;
     igtl::Matrix4x4& matrix4 = frame.matrixCoil4;
-    
+    igtl::Matrix4x4& matrix5 = frame.matrixCoil5;
+    igtl::Matrix4x4& matrix6 = frame.matrixCoil6;
+    igtl::Matrix4x4& matrix7 = frame.matrixCoil7;
+
+    igtl::IdentityMatrix(matrix0);
     igtl::IdentityMatrix(matrix1);
     igtl::IdentityMatrix(matrix2);
     igtl::IdentityMatrix(matrix3);
     igtl::IdentityMatrix(matrix4);
+    igtl::IdentityMatrix(matrix5);
+    igtl::IdentityMatrix(matrix6);
+    igtl::IdentityMatrix(matrix7);
 
     frame.ts = iter->ts;
-    matrix1[0][3] = iter->V2X;
-    matrix1[1][3] = iter->V2Y;
-    matrix1[2][3] = iter->V2Z;
-    matrix2[0][3] = iter->V3X;
-    matrix2[1][3] = iter->V3Y;
-    matrix2[2][3] = iter->V3Z;
-    matrix3[0][3] = iter->V6X;
-    matrix3[1][3] = iter->V6Y;
-    matrix3[2][3] = iter->V6Z;
-    matrix4[0][3] = iter->V7X;
-    matrix4[1][3] = iter->V7Y;
-    matrix4[2][3] = iter->V7Z;
+    
+    matrix0[0][3] = iter->V0X;
+    matrix0[1][3] = iter->V0Y;
+    matrix0[2][3] = iter->V0Z;
+    matrix1[0][3] = iter->V1X;
+    matrix1[1][3] = iter->V1Y;
+    matrix1[2][3] = iter->V1Z;
+    matrix2[0][3] = iter->V2X;
+    matrix2[1][3] = iter->V2Y;
+    matrix2[2][3] = iter->V2Z;
+    matrix3[0][3] = iter->V3X;
+    matrix3[1][3] = iter->V3Y;
+    matrix3[2][3] = iter->V3Z;
+    matrix4[0][3] = iter->V4X;
+    matrix4[1][3] = iter->V4Y;
+    matrix4[2][3] = iter->V4Z;
+    matrix5[0][3] = iter->V5X;
+    matrix5[1][3] = iter->V5Y;
+    matrix5[2][3] = iter->V5Z;
+    matrix6[0][3] = iter->V6X;
+    matrix6[1][3] = iter->V6Y;
+    matrix6[2][3] = iter->V6Z;
+    matrix7[0][3] = iter->V7X;
+    matrix7[1][3] = iter->V7Y;
+    matrix7[2][3] = iter->V7Z;
 
     frameList.push_back(frame);
     }
@@ -380,32 +437,86 @@ int SendTransformData(igtl::ClientSocket::Pointer& socket, igtl::TransformMessag
 }
 
 
-int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, CatheterMatricesFrame& mat)
+int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, CatheterMatricesFrame& mat, bool* mask)
 {
   igtl::Matrix4x4 matrix;
   igtl::TrackingDataElement::Pointer ptr;
 
   std::cout << "===== Time: " << mat.ts << " =====" << std::endl;
 
+  int ch = 0;
+  
+  // Coil 0
+  if (mask[0])
+    {
+    trackingMsg->GetTrackingDataElement(ch, ptr);
+    ptr->SetMatrix(mat.matrixCoil0);
+    igtl::PrintMatrix(mat.matrixCoil0);
+    ch ++;
+    }
+  
   // Coil 1
-  trackingMsg->GetTrackingDataElement(0, ptr);
-  ptr->SetMatrix(mat.matrixCoil1);
-  igtl::PrintMatrix(mat.matrixCoil1);
+  if (mask[1])
+    {
+    trackingMsg->GetTrackingDataElement(ch, ptr);
+    ptr->SetMatrix(mat.matrixCoil1);
+    igtl::PrintMatrix(mat.matrixCoil1);
+    ch ++;
+    }
   
   // Coil 2
-  trackingMsg->GetTrackingDataElement(1, ptr);
-  ptr->SetMatrix(mat.matrixCoil2);
-  igtl::PrintMatrix(mat.matrixCoil2);
-  
+  if (mask[2])
+    {
+    trackingMsg->GetTrackingDataElement(ch, ptr);
+    ptr->SetMatrix(mat.matrixCoil2);
+    igtl::PrintMatrix(mat.matrixCoil2);
+    ch ++;
+    }
+
   // Coil 3
-  trackingMsg->GetTrackingDataElement(2, ptr);
-  ptr->SetMatrix(mat.matrixCoil3);
-  igtl::PrintMatrix(mat.matrixCoil3);
+  if (mask[3])
+    {
+    trackingMsg->GetTrackingDataElement(ch, ptr);
+    ptr->SetMatrix(mat.matrixCoil3);
+    igtl::PrintMatrix(mat.matrixCoil3);
+    ch ++;
+    }
 
   // Coil 4
-  trackingMsg->GetTrackingDataElement(3, ptr);
-  ptr->SetMatrix(mat.matrixCoil4);
-  igtl::PrintMatrix(mat.matrixCoil4);
+  if (mask[4])
+    {
+    trackingMsg->GetTrackingDataElement(ch, ptr);
+    ptr->SetMatrix(mat.matrixCoil4);
+    igtl::PrintMatrix(mat.matrixCoil4);
+    ch ++;
+    }
+  
+  // Coil 5
+  if (mask[5])
+    {
+    trackingMsg->GetTrackingDataElement(ch, ptr);
+    ptr->SetMatrix(mat.matrixCoil5);
+    igtl::PrintMatrix(mat.matrixCoil5);
+    ch ++;
+    }
+
+  // Coil 6
+  if (mask[6])
+    {
+    trackingMsg->GetTrackingDataElement(ch, ptr);
+    ptr->SetMatrix(mat.matrixCoil6);
+    igtl::PrintMatrix(mat.matrixCoil6);
+    ch ++;
+    }
+
+  // Coil 7
+  if (mask[7])
+    {
+    trackingMsg->GetTrackingDataElement(ch, ptr);
+    ptr->SetMatrix(mat.matrixCoil7);
+    igtl::PrintMatrix(mat.matrixCoil7);
+    ch ++;
+    }
 
   trackingMsg->Pack();
   socket->Send(trackingMsg->GetPackPointer(), trackingMsg->GetPackSize());
