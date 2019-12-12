@@ -89,23 +89,26 @@ void  ConvertTrackingData(TrackingDataList& coordinates, CatheterMatricesFrameLi
 int   SendTransformData(igtl::ClientSocket::Pointer& socket, igtl::TransformMessage::Pointer& transformMsg, MatrixFrame& mat);
 int   SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, CatheterMatricesFrame& mat, bool* mask);
 
+
 void PrintUsage(const char* progName)
 {
-  std::cerr << "Usage: " << progName << " <hostname> <port> <IGTL type> <fps> <file> <mask>"    << std::endl;
+  std::cerr << "Usage: " << progName << " <hostname> <port> <IGTL type> <fps> <file> <mask> <dev name>"    << std::endl;
   std::cerr << "    <hostname>  : IP or host name"                    << std::endl;
   std::cerr << "    <port>      : Port # (18944 in Slicer default)"   << std::endl;
   std::cerr << "    <IGTL type> : 'M' = Transform; 'T' = Tracking data; if 'T' is specified, <mask> must be given."   << std::endl;
   std::cerr << "    <fps>       : Frequency (fps) to send coordinate" << std::endl;
   std::cerr << "    <file>      : Tracking file" << std::endl;
+  std::cerr << "    <dev name>  : Device name" << std::endl;
   std::cerr << "    <mask>      : Channel Mask (ex. '01100110')" << std::endl;
 }
+
 
 int main(int argc, char* argv[])
 {
   //------------------------------------------------------------
   // Parse Arguments
 
-  if (argc < 6 || argc > 7) // check number of arguments
+  if (argc < 7 || argc > 8) // check number of arguments
     {
     // If not correct, print usage
     PrintUsage(argv[0]);
@@ -131,7 +134,7 @@ int main(int argc, char* argv[])
   int nCh = 0;
   if (type == TRACKING)
     {
-    if (argc == 7 && strlen(argv[6]) == 8)
+    if (argc == 8 && strlen(argv[6]) == 8)
       {
       for (int i = 0; i < 8; i ++)
         {
@@ -153,6 +156,7 @@ int main(int argc, char* argv[])
       }
     }
   std::cout << "Number of channels = " << nCh << std::endl;
+  std::string devName = argv[7];
   
 
   //------------------------------------------------------------
@@ -200,7 +204,7 @@ int main(int argc, char* argv[])
     MatrixFrameList::iterator iter;
     for (iter = mFrameList.begin(); iter != mFrameList.end(); iter ++)
       {
-      transMsg->SetDeviceName("Tracker");
+      transMsg->SetDeviceName(devName.c_str());
       SendTransformData(socket, transMsg, *iter);
       igtl::Sleep(interval);
       }
@@ -223,7 +227,7 @@ int main(int argc, char* argv[])
     for (int coil = 0; coil < nCh; coil ++)
       {
       std::stringstream ss;
-      ss << "Tracker" << std::setfill('0') << std::setw(2) << coil;
+      ss << devName.c_str() << std::setfill('0') << std::setw(2) << coil;
       trackElement[coil] = igtl::TrackingDataElement::New();
       trackElement[coil]->SetName(ss.str().c_str());
       trackElement[coil]->SetType(igtl::TrackingDataElement::TYPE_3D);
@@ -235,7 +239,7 @@ int main(int argc, char* argv[])
     CatheterMatricesFrameList::iterator iter;
     for (iter = cmFrameList.begin(); iter != cmFrameList.end(); iter ++)
       {
-      trackingMsg->SetDeviceName("Tracker");
+      trackingMsg->SetDeviceName(devName.c_str());
       SendTrackingData(socket, trackingMsg, *iter, chmask);
       igtl::Sleep(interval);
       }
@@ -460,7 +464,7 @@ int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMess
     {
     trackingMsg->GetTrackingDataElement(ch, ptr);
     ptr->SetMatrix(mat.matrixCoil1);
-    igtl::PrintMatrix(mat.matrixCoil1);
+    //igtl::PrintMatrix(mat.matrixCoil1);
     ch ++;
     }
   
@@ -469,7 +473,7 @@ int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMess
     {
     trackingMsg->GetTrackingDataElement(ch, ptr);
     ptr->SetMatrix(mat.matrixCoil2);
-    igtl::PrintMatrix(mat.matrixCoil2);
+    //igtl::PrintMatrix(mat.matrixCoil2);
     ch ++;
     }
 
@@ -478,7 +482,7 @@ int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMess
     {
     trackingMsg->GetTrackingDataElement(ch, ptr);
     ptr->SetMatrix(mat.matrixCoil3);
-    igtl::PrintMatrix(mat.matrixCoil3);
+    //igtl::PrintMatrix(mat.matrixCoil3);
     ch ++;
     }
 
@@ -487,7 +491,7 @@ int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMess
     {
     trackingMsg->GetTrackingDataElement(ch, ptr);
     ptr->SetMatrix(mat.matrixCoil4);
-    igtl::PrintMatrix(mat.matrixCoil4);
+    //igtl::PrintMatrix(mat.matrixCoil4);
     ch ++;
     }
   
@@ -496,7 +500,7 @@ int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMess
     {
     trackingMsg->GetTrackingDataElement(ch, ptr);
     ptr->SetMatrix(mat.matrixCoil5);
-    igtl::PrintMatrix(mat.matrixCoil5);
+    //igtl::PrintMatrix(mat.matrixCoil5);
     ch ++;
     }
 
@@ -505,7 +509,7 @@ int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMess
     {
     trackingMsg->GetTrackingDataElement(ch, ptr);
     ptr->SetMatrix(mat.matrixCoil6);
-    igtl::PrintMatrix(mat.matrixCoil6);
+    //igtl::PrintMatrix(mat.matrixCoil6);
     ch ++;
     }
 
@@ -514,7 +518,7 @@ int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMess
     {
     trackingMsg->GetTrackingDataElement(ch, ptr);
     ptr->SetMatrix(mat.matrixCoil7);
-    igtl::PrintMatrix(mat.matrixCoil7);
+    //igtl::PrintMatrix(mat.matrixCoil7);
     ch ++;
     }
 
