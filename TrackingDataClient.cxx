@@ -130,15 +130,17 @@ int main(int argc, char* argv[])
   int    interval = (int) (1000.0 / fps);
   std::string filename = argv[5];
 
+  std::string devName = argv[6];
+
   bool chmask[8];
   int nCh = 0;
   if (type == TRACKING)
     {
-    if (argc == 8 && strlen(argv[6]) == 8)
+    if (argc == 8 && strlen(argv[7]) == 8)
       {
       for (int i = 0; i < 8; i ++)
         {
-        if (argv[6][i] == '1')
+        if (argv[7][i] == '1')
           {
           chmask[i] = true;
           nCh ++;
@@ -156,7 +158,6 @@ int main(int argc, char* argv[])
       }
     }
   std::cout << "Number of channels = " << nCh << std::endl;
-  std::string devName = argv[7];
   
 
   //------------------------------------------------------------
