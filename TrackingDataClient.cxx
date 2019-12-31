@@ -339,7 +339,9 @@ int main(int argc, char* argv[])
       SendTrackingData(socket, trackingMsg, *iter, chmask);
       igtl::Sleep(interval);
       }
-	delete[] trackElement;
+    
+    delete[] trackElement;
+    
     }
       
 }
