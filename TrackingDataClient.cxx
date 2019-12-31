@@ -316,7 +316,8 @@ int main(int argc, char* argv[])
     igtl::TrackingDataMessage::Pointer trackingMsg;
     trackingMsg = igtl::TrackingDataMessage::New();
     
-    igtl::TrackingDataElement::Pointer trackElement[nCh];
+	igtl::TrackingDataElement::Pointer * trackElement;
+	trackElement = new igtl::TrackingDataElement::Pointer[nCh];
     
     for (int i = 0; i < nCh; i ++)
       {
@@ -338,6 +339,7 @@ int main(int argc, char* argv[])
       SendTrackingData(socket, trackingMsg, *iter, chmask);
       igtl::Sleep(interval);
       }
+	delete[] trackElement;
     }
       
 }
