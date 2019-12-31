@@ -80,8 +80,8 @@ enum {
 typedef std::vector<TrackingData> TrackingDataList;
 typedef std::vector<MatrixFrame> MatrixFrameList;
 
-void  ReadFile(std::string filename, TrackingDataList& coordinates, char delim);
-void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frameList);
+void  ReadFile(std::string filename, TrackingDataList& coordinates, char delim, bool fAscending);
+void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frameList, bool fNormal);
 void  ConvertTrackingData(TrackingDataList& coordinates, MatrixFrameList& frameList);
 int   SendTransformData(igtl::ClientSocket::Pointer& socket, igtl::TransformMessage::Pointer& transformMsg, MatrixFrame& mat);
 int   SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, MatrixFrame& mat, std::vector<bool> mask);
@@ -94,7 +94,7 @@ void SplitString(char* input, std::vector<std::string>& output, char delim, int 
   char* pend = p + len;
   
   output.clear();
-  for (; p < pend && *p != '\n'; p ++)
+  while(p < pend && *p != '\n')
     {
     char buf[1024];
     char* pbuf = buf;
@@ -119,14 +119,16 @@ void SplitString(char* input, std::vector<std::string>& output, char delim, int 
 
 void PrintUsage(const char* progName)
 {
-  std::cerr << "Usage: " << progName << " [-h <hostname>] [-p <port>] [-t <IGTL type>] [-f <fps>] [-m <mask>] [-d <dev name>] <file>"    << std::endl;
-  std::cerr << "    <hostname>  : IP or host name (default: \"localhost\")" << std::endl;
-  std::cerr << "    <port>      : Port # (default: \"18944\")"   << std::endl;
-  std::cerr << "    <IGTL type> : Output messagr type. 'T' = Tracking data (default); 'M' = Transform; when 'M' is specified, only the first two sets of vectors are used." << std::endl;
-  std::cerr << "    <fps>       : Frequency (fps) to send coordinate (default: 5) " << std::endl;
-  std::cerr << "    <dev name>  : Device name (default \"Tracking\")" << std::endl;
-  std::cerr << "    <mask>      : Channel type (Maximum " << MAX_CHANNELS
+  std::cerr << "Usage: " << progName << " [-h <hostname>] [-p <port>] [-t <IGTL type>] [-f <fps>] [-m <mask>] [-n] [-o <order>] [-d <dev name>] <file>"    << std::endl;
+  std::cerr << "    -h <hostname>  : IP or host name (default: \"localhost\")" << std::endl;
+  std::cerr << "    -p <port>      : Port # (default: \"18944\")"   << std::endl;
+  std::cerr << "    -t <IGTL type> : Output messagr type. 'T' = Tracking data (default); 'M' = Transform; when 'M' is specified, only the first two sets of vectors are used." << std::endl;
+  std::cerr << "    -f <fps>       : Frequency (fps) to send coordinate (default: 5) " << std::endl;
+  std::cerr << "    -m <mask>      : Channel mask (Maximum " << MAX_CHANNELS
             << " channels); ex. '11111111', '10101010' (default: \"11111111\")" << std::endl;
+  std::cerr << "    -n             : Specify if normal vector is used." << std::endl;
+  std::cerr << "    -o <order>     : Order of channels ('a' for ascending / 'd' for desending; default is 'a')" << std::endl;
+  std::cerr << "    -d <dev name>  : Device name (default \"Tracking\")" << std::endl;
   std::cerr << "    <file>      : Tracking file" << std::endl;
 }
 
@@ -139,6 +141,8 @@ int main(int argc, char* argv[])
   std::string hostname = "localhost";
   int    port          = 18944;
   int    type          = TRACKING;
+  bool   fNormal       = false;
+  bool   fAscending    = true;
   double fps           = 5.0;
   std::string devName  = "Tracking";
   std::vector<bool> chmask;
@@ -168,6 +172,27 @@ int main(int argc, char* argv[])
       else
         {
         type = TRACKING;
+        }
+      }
+    else if (strncmp(argv[i], "-n", 2) == 0 && i < argc-1)
+      {
+      fNormal = true;
+      }
+    else if (strncmp(argv[i], "-o", 2) == 0 && i < argc-1)
+      {
+      i ++;
+      if (argv[i][0] == 'd')
+        {
+        fAscending = false;
+        }
+      else if (argv[i][0] == 'a')
+        {
+        fAscending = true;
+        }
+      else
+        {
+        std::cerr << "Wrong option for -o: " << argv[i] << std::endl;
+        exit(0);
         }
       }
     else if (strncmp(argv[i], "-f", 2) == 0 && i < argc-1)
@@ -260,11 +285,11 @@ int main(int argc, char* argv[])
   MatrixFrameList mFrameList;
   //CatheterMatricesFrameList cmFrameList;
 
-  ReadFile(filename, coordinates, ' ');
+  ReadFile(filename, coordinates, ' ', fAscending);
   
   if (type == TRANSFORM)
     {
-    ConvertTransformData(coordinates, mFrameList);
+    ConvertTransformData(coordinates, mFrameList, fNormal);
     }
   else
     {
@@ -347,7 +372,7 @@ int main(int argc, char* argv[])
 }
 
 
-void ReadFile(std::string filename, TrackingDataList& coordinates, char delim)
+void  ReadFile(std::string filename, TrackingDataList& coordinates, char delim, bool fAscending)
 {
   
   std::ifstream ifs;
@@ -387,25 +412,30 @@ void ReadFile(std::string filename, TrackingDataList& coordinates, char delim)
       v.x = atof(cols[i*3+1].c_str());
       v.y = atof(cols[i*3+2].c_str());
       v.z = atof(cols[i*3+3].c_str());
-      pt.vectors.push_back(v);
+      if (fAscending)
+        {
+        pt.vectors.push_back(v);
+        }
+      else
+        {
+        pt.vectors.insert(pt.vectors.begin(), v);
+        }
       }
     // std::cerr << "Read: " << coordinates.size() << " coordinates from file." << std::endl;
-    
     coordinates.push_back(pt);
-    
     }
   
   ifs.close();
 }
 
 
-void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frameList)
+void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frameList, bool fNormal)
 {
 
   frameList.clear();
-  
-  // Assuming that the first and second vectors (V0 and V1) represent the tip position
-  // and the catheter orientation respectively.
+
+  // If fNormal=true, we assume that the first and second vectors (V0 and V1) represent the tip position
+  // and the catheter orientation respectively
 
   TrackingDataList::iterator iter;
 
@@ -424,10 +454,19 @@ void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frame
     
     frame.ts = iter->ts;
 
-    n[0] = iter->vectors[1].x;
-    n[1] = iter->vectors[1].y;
-    n[2] = iter->vectors[1].z;
-    
+    if (fNormal)
+      {
+      n[0] = iter->vectors[1].x;
+      n[1] = iter->vectors[1].y;
+      n[2] = iter->vectors[1].z;
+      }
+    else
+      {
+      n[0] = iter->vectors[0].x - iter->vectors[1].x;
+      n[1] = iter->vectors[0].y - iter->vectors[1].y;
+      n[2] = iter->vectors[0].z - iter->vectors[1].z;
+      }
+      
     nlen = sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2]);
     if (nlen > 0)
       {
