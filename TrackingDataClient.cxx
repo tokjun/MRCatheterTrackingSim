@@ -58,13 +58,13 @@ typedef struct {
 } Matrix4x4;
 
 typedef struct {
-  int ts;
+  double ts;
   std::string name;
   std::vector<Vector> vectors;
 } TrackingData;
 
 typedef struct {
-  int ts;
+  double ts;
   std::string name;
   std::vector<Matrix4x4> matrices;
 } MatrixFrame;
@@ -121,11 +121,11 @@ void SplitString(char* input, std::vector<std::string>& output, char delim, int 
 
 void PrintUsage(const char* progName)
 {
-  std::cerr << "Usage: " << progName << " [-h <hostname>] [-p <port>] [-t <IGTL type>] [-f <fps>] [-m <mask>] [-n] [-o <order>] [-d <dev name>] <file>"    << std::endl;
+  std::cerr << "Usage: " << progName << " [-h <hostname>] [-p <port>] [-t <IGTL type>] [-f <fps>] [-m <mask>] [-n] [-o <order>] [-D] [-d <dev name>] <file>"    << std::endl;
   std::cerr << "    -h <hostname>  : IP or host name (default: \"localhost\")" << std::endl;
   std::cerr << "    -p <port>      : Port # (default: \"18944\")"   << std::endl;
   std::cerr << "    -t <IGTL type> : Output messagr type. 'T' = Tracking data (default); 'M' = Transform; when 'M' is specified, only the first two sets of vectors are used." << std::endl;
-  std::cerr << "    -f <fps>       : Frequency (fps) to send coordinate (default: 5) " << std::endl;
+  std::cerr << "    -f <fps>       : Frequency (fps) to send coordinate (default: 5); if 't' is specified, the interval will be calculated from time stamp. " << std::endl;
   std::cerr << "    -m <mask>      : Channel mask (Maximum " << MAX_CHANNELS
             << " channels); ex. '11111111', '10101010' (default: \"11111111\")" << std::endl;
   std::cerr << "    -n             : Specify if normal vector is used." << std::endl;
@@ -147,6 +147,7 @@ int main(int argc, char* argv[])
   bool   fNormal             = false;
   bool   fAscending          = true;
   double fps                 = 5.0;
+  bool   fUseTimeStamp       = false;
   bool   fDeviceNameFromFile = false;
   std::string devName        = "Tracking";
   std::vector<bool> chmask;
@@ -202,7 +203,14 @@ int main(int argc, char* argv[])
     else if (strncmp(argv[i], "-f", 2) == 0 && i < argc-1)
       {
       i ++;
-      fps = atof(argv[i]);
+      if (strncmp(argv[i], "t", 1) == 0)
+        {
+        fUseTimeStamp = true;
+        }
+      else
+        {
+        fps = atof(argv[i]);
+        }
       }
     else if (strncmp(argv[i], "-D", 2) == 0 && i < argc-1)
       {
@@ -329,8 +337,31 @@ int main(int argc, char* argv[])
     //------------------------------------------------------------
     // Loop
     MatrixFrameList::iterator iter;
+    double prevTimeStamp = -1;
     for (iter = mFrameList.begin(); iter != mFrameList.end(); iter ++)
       {
+      
+      // Wait
+      if (fUseTimeStamp)
+        {
+        int _interval; 
+        if (prevTimeStamp < 0)
+          {
+          _interval = 0;
+          }
+        else
+          {
+          _interval = (int) ((iter->ts - prevTimeStamp) * 1000.0);
+          }
+        igtl::Sleep(_interval);
+        prevTimeStamp = iter->ts;
+        }
+      else
+        {
+        igtl::Sleep(interval);
+        }
+
+      // Set up meesage
       if (fDeviceNameFromFile)
         {
         transMsg->SetDeviceName(iter->name.c_str());
@@ -340,7 +371,6 @@ int main(int argc, char* argv[])
         transMsg->SetDeviceName(devName.c_str());
         }
       SendTransformData(socket, transMsg, *iter);
-      igtl::Sleep(interval);
       }
 
     }
@@ -373,8 +403,29 @@ int main(int argc, char* argv[])
     // Loop
     //CatheterMatricesFrameList::iterator iter;
     MatrixFrameList::iterator iter;
+    double prevTimeStamp = -1;
     for (iter = mFrameList.begin(); iter != mFrameList.end(); iter ++)
       {
+      // Wait
+      if (fUseTimeStamp)
+        {
+        int _interval; 
+        if (prevTimeStamp < 0)
+          {
+          _interval = 0;
+          }
+        else
+          {
+          _interval = (int) ((iter->ts - prevTimeStamp) * 1000.0);
+          }
+        igtl::Sleep(_interval);
+        prevTimeStamp = iter->ts;
+        }
+      else
+        {
+        igtl::Sleep(interval);
+        }
+
       if (fDeviceNameFromFile)
         {
         trackingMsg->SetDeviceName(iter->name.c_str());
@@ -384,7 +435,6 @@ int main(int argc, char* argv[])
         trackingMsg->SetDeviceName(devName.c_str());
         }
       SendTrackingData(socket, trackingMsg, *iter, chmask);
-      igtl::Sleep(interval);
       }
     
     delete[] trackElement;
@@ -448,7 +498,7 @@ void  ReadFile(std::string filename, TrackingDataList& coordinates, char delim, 
       pt.name = "";
       }
     
-    pt.ts = atoi(cols[offset+0].c_str());
+    pt.ts = atof(cols[offset+0].c_str());
 
     for (int i = 0; i < nvec; i ++)
       {
