@@ -338,6 +338,13 @@ int main(int argc, char* argv[])
     // Loop
     MatrixFrameList::iterator iter;
     double prevTimeStamp = -1;
+
+    igtl::TimeStamp::Pointer cts;
+    cts = igtl::TimeStamp::New();
+    double stt;
+    double elapsed = 0.0;
+
+    
     for (iter = mFrameList.begin(); iter != mFrameList.end(); iter ++)
       {
       
@@ -351,8 +358,13 @@ int main(int argc, char* argv[])
           }
         else
           {
-          _interval = (int) ((iter->ts - prevTimeStamp) * 1000.0);
+          _interval = (int) ((iter->ts - prevTimeStamp - elapsed) * 1000.0);
+          if (_interval < 0)
+            {
+            _interval = 0;
+            }
           }
+        std::cerr << "Time: " << elapsed << " / " << _interval << std::endl;
         igtl::Sleep(_interval);
         prevTimeStamp = iter->ts;
         }
@@ -361,6 +373,9 @@ int main(int argc, char* argv[])
         igtl::Sleep(interval);
         }
 
+      cts->GetTime();
+      stt = cts->GetTimeStamp();
+      
       // Set up meesage
       if (fDeviceNameFromFile)
         {
@@ -371,6 +386,8 @@ int main(int argc, char* argv[])
         transMsg->SetDeviceName(devName.c_str());
         }
       SendTransformData(socket, transMsg, *iter);
+      cts->GetTime();
+      elapsed = cts->GetTimeStamp() - stt;
       }
 
     }
@@ -404,6 +421,12 @@ int main(int argc, char* argv[])
     //CatheterMatricesFrameList::iterator iter;
     MatrixFrameList::iterator iter;
     double prevTimeStamp = -1;
+
+    igtl::TimeStamp::Pointer cts;
+    cts = igtl::TimeStamp::New();
+    double stt;
+    double elapsed = 0.0;
+
     for (iter = mFrameList.begin(); iter != mFrameList.end(); iter ++)
       {
       // Wait
@@ -416,8 +439,14 @@ int main(int argc, char* argv[])
           }
         else
           {
-          _interval = (int) ((iter->ts - prevTimeStamp) * 1000.0);
+          _interval = (int) ((iter->ts - prevTimeStamp - elapsed) * 1000.0);
+          if (_interval < 0)
+            {
+            _interval = 0;
+            }
           }
+        
+        std::cerr << "Time: " << elapsed << " / " << _interval << std::endl;
         igtl::Sleep(_interval);
         prevTimeStamp = iter->ts;
         }
@@ -426,6 +455,9 @@ int main(int argc, char* argv[])
         igtl::Sleep(interval);
         }
 
+      cts->GetTime();
+      stt = cts->GetTimeStamp();
+      
       if (fDeviceNameFromFile)
         {
         trackingMsg->SetDeviceName(iter->name.c_str());
@@ -434,7 +466,10 @@ int main(int argc, char* argv[])
         {
         trackingMsg->SetDeviceName(devName.c_str());
         }
+      
       SendTrackingData(socket, trackingMsg, *iter, chmask);
+      cts->GetTime();
+      elapsed = cts->GetTimeStamp() - stt;
       }
     
     delete[] trackElement;
