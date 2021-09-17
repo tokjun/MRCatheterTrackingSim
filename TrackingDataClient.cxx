@@ -24,11 +24,14 @@
 #include "igtlOSUtil.h"
 #include "igtlTrackingDataMessage.h"
 #include "igtlTransformMessage.h"
+#include "igtlStringMessage.h"
 #include "igtlClientSocket.h"
 #include "igtlMath.h"
 
 
 #define MAX_CHANNELS 8
+
+enum FrameType { TYPE_TRACKING, TYPE_TRANSFORM, TYPE_STRING };
 
 // Vector (x, y, z)
 typedef struct {
@@ -59,15 +62,19 @@ typedef struct {
 
 typedef struct {
   double ts;
+  int type;   // FrameType
   std::string name;
   std::vector<Vector> vectors;
-} TrackingData;
+  std::string text;
+} RawData;
 
 typedef struct {
   double ts;
+  int type;  // FrameType
   std::string name;
   std::vector<Matrix4x4> matrices;
-} MatrixFrame;
+  std::string text;
+} Frame;
 
 enum {
   TRANSFORM,
@@ -79,14 +86,15 @@ enum {
   NORMAL,
 };
 
-typedef std::vector<TrackingData> TrackingDataList;
-typedef std::vector<MatrixFrame> MatrixFrameList;
+typedef std::vector<RawData> RawDataList;
+typedef std::vector<Frame> FrameList;
 
-void  ReadFile(std::string filename, TrackingDataList& coordinates, char delim, bool fAscending, bool fDeviceNameFromFile);
-void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frameList, bool fNormal);
-void  ConvertTrackingData(TrackingDataList& coordinates, MatrixFrameList& frameList);
-int   SendTransformData(igtl::ClientSocket::Pointer& socket, igtl::TransformMessage::Pointer& transformMsg, MatrixFrame& mat);
-int   SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, MatrixFrame& mat, std::vector<bool> mask);
+void  ReadFile(std::string filename, RawDataList& coordinates, char delim, bool fAscending);
+void  ConvertTransformData(RawDataList& coordinates, FrameList& frameList, bool fNormal);
+void  ConvertTrackingData(RawDataList& coordinates, FrameList& frameList);
+int   SendTransformData(igtl::ClientSocket::Pointer& socket, igtl::TransformMessage::Pointer& transformMsg, Frame& mat);
+int   SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, Frame& mat, std::vector<bool> mask);
+int   SendStringData(igtl::ClientSocket::Pointer& socket, igtl::StringMessage::Pointer& stringMsg, Frame& mat);
 
 
 void SplitString(char* input, std::vector<std::string>& output, char delim, int len)
@@ -126,11 +134,9 @@ void PrintUsage(const char* progName)
   std::cerr << "    -p <port>      : Port # (default: \"18944\")"   << std::endl;
   std::cerr << "    -t <IGTL type> : Output messagr type. 'T' = Tracking data (default); 'M' = Transform; when 'M' is specified, only the first two sets of vectors are used." << std::endl;
   std::cerr << "    -f <fps>       : Frequency (fps) to send coordinate (default: 5); if 't' is specified, the interval will be calculated from time stamp. " << std::endl;
-  std::cerr << "    -m <mask>      : Channel mask (Maximum " << MAX_CHANNELS
-            << " channels); ex. '11111111', '10101010' (default: \"11111111\")" << std::endl;
+  std::cerr << "    -m <mask>      : Channel mask (Maximum " << MAX_CHANNELS << " channels); ex. '11111111', '10101010' (default: \"11111111\")" << std::endl;
   std::cerr << "    -n             : Specify if normal vector is used." << std::endl;
   std::cerr << "    -o <order>     : Order of channels ('a' for ascending / 'd' for desending; default is 'a')" << std::endl;
-  std::cerr << "    -D             : Assume that the first column in the file is a device name (default off; -d will be ignored if -D is specified)" <<std::endl;
   std::cerr << "    -d <dev name>  : Device name (default \"Tracking\")" << std::endl;
   std::cerr << "    <file>      : Tracking file" << std::endl;
 }
@@ -148,7 +154,6 @@ int main(int argc, char* argv[])
   bool   fAscending          = true;
   double fps                 = 5.0;
   bool   fUseTimeStamp       = false;
-  bool   fDeviceNameFromFile = false;
   std::string devName        = "Tracking";
   std::vector<bool> chmask;
   std::string filename = "";
@@ -211,10 +216,6 @@ int main(int argc, char* argv[])
         {
         fps = atof(argv[i]);
         }
-      }
-    else if (strncmp(argv[i], "-D", 2) == 0 && i < argc-1)
-      {
-      fDeviceNameFromFile = true;
       }
     else if (strncmp(argv[i], "-d", 2) == 0 && i < argc-1)
       {
@@ -297,11 +298,11 @@ int main(int argc, char* argv[])
   //------------------------------------------------------------
   // Load Tracking Data
   
-  TrackingDataList coordinates;
-  MatrixFrameList mFrameList;
+  RawDataList coordinates;
+  FrameList mFrameList;
   //CatheterMatricesFrameList cmFrameList;
 
-  ReadFile(filename, coordinates, ' ', fAscending, fDeviceNameFromFile);
+  ReadFile(filename, coordinates, '\t', fAscending);
   
   if (type == TRANSFORM)
     {
@@ -325,161 +326,109 @@ int main(int argc, char* argv[])
     exit(0);
     }
 
-  if (type == TRANSFORM)
+  //------------------------------------------------------------
+  // Allocate Transform Message Class
+  //
+  
+  igtl::TransformMessage::Pointer transMsg;
+  transMsg = igtl::TransformMessage::New();
+    
+  //------------------------------------------------------------
+  // Allocate TrackingData Message Class
+  //
+  // NOTE: TrackingDataElement class instances are allocated
+  //       before the loop starts to avoid reallocation
+  //       in each image transfer.
+  
+  igtl::TrackingDataMessage::Pointer trackingMsg;
+  trackingMsg = igtl::TrackingDataMessage::New();
+  
+  igtl::TrackingDataElement::Pointer * trackElement;
+  trackElement = new igtl::TrackingDataElement::Pointer[nCh];
+  
+  for (int i = 0; i < nCh; i ++)
     {
-    //------------------------------------------------------------
-    // Allocate Transform Message Class
-    //
-    
-    igtl::TransformMessage::Pointer transMsg;
-    transMsg = igtl::TransformMessage::New();
-    
-    //------------------------------------------------------------
-    // Loop
-    MatrixFrameList::iterator iter;
-    double prevTimeStamp = -1;
+    std::stringstream ss;
+    ss << devName.c_str() << std::setfill('0') << std::setw(2) << i;
+    trackElement[i] = igtl::TrackingDataElement::New();
+    trackElement[i]->SetName(ss.str().c_str());
+    trackElement[i]->SetType(igtl::TrackingDataElement::TYPE_3D);
+    trackingMsg->AddTrackingDataElement(trackElement[i]);
+    }
 
-    igtl::TimeStamp::Pointer cts;
-    cts = igtl::TimeStamp::New();
-    double stt;
-    double elapsed = 0.0;
+  //------------------------------------------------------------
+  // Allocate Transform Message Class
 
-    
-    for (iter = mFrameList.begin(); iter != mFrameList.end(); iter ++)
-      {
+  igtl::StringMessage::Pointer stringMsg;
+  stringMsg = igtl::StringMessage::New();
+
+  //------------------------------------------------------------
+  // Loop
+  FrameList::iterator fliter;
+  double prevTimeStamp = -1;
+  
+  igtl::TimeStamp::Pointer cts;
+  cts = igtl::TimeStamp::New();
+  double stt;
+  double elapsed = 0.0;
+  
+  for (fliter = mFrameList.begin(); fliter != mFrameList.end(); fliter ++)
+    {
       
-      // Wait
-      if (fUseTimeStamp)
+    // Wait
+    if (fUseTimeStamp)
+      {
+      int _interval; 
+      if (prevTimeStamp < 0)
         {
-        int _interval; 
-        if (prevTimeStamp < 0)
+        _interval = 0;
+        }
+      else
+        {
+        _interval = (int) ((fliter->ts - prevTimeStamp - elapsed) * 1000.0);
+        if (_interval < 0)
           {
           _interval = 0;
           }
-        else
-          {
-          _interval = (int) ((iter->ts - prevTimeStamp - elapsed) * 1000.0);
-          if (_interval < 0)
-            {
-            _interval = 0;
-            }
-          }
-        std::cerr << "Time: " << elapsed << " / " << _interval << std::endl;
-        igtl::Sleep(_interval);
-        prevTimeStamp = iter->ts;
         }
-      else
-        {
-        igtl::Sleep(interval);
-        }
-
-      cts->GetTime();
-      stt = cts->GetTimeStamp();
-      
-      // Set up meesage
-      if (fDeviceNameFromFile)
-        {
-        transMsg->SetDeviceName(iter->name.c_str());
-        }
-      else
-        {
-        transMsg->SetDeviceName(devName.c_str());
-        }
-      SendTransformData(socket, transMsg, *iter);
-      cts->GetTime();
-      elapsed = cts->GetTimeStamp() - stt;
+      std::cerr << fliter->type << " Time: " << elapsed << " / " << _interval << std::endl;
+      igtl::Sleep(_interval);
+      prevTimeStamp = fliter->ts;
       }
-
-    }
-  else // type = TRACKING
-    {
-    //------------------------------------------------------------
-    // Allocate TrackingData Message Class
-    //
-    // NOTE: TrackingDataElement class instances are allocated
-    //       before the loop starts to avoid reallocation
-    //       in each image transfer.
-    
-    igtl::TrackingDataMessage::Pointer trackingMsg;
-    trackingMsg = igtl::TrackingDataMessage::New();
-    
-	igtl::TrackingDataElement::Pointer * trackElement;
-	trackElement = new igtl::TrackingDataElement::Pointer[nCh];
-    
-    for (int i = 0; i < nCh; i ++)
+    else
       {
-      std::stringstream ss;
-      ss << devName.c_str() << std::setfill('0') << std::setw(2) << i;
-      trackElement[i] = igtl::TrackingDataElement::New();
-      trackElement[i]->SetName(ss.str().c_str());
-      trackElement[i]->SetType(igtl::TrackingDataElement::TYPE_3D);
-      trackingMsg->AddTrackingDataElement(trackElement[i]);
+      igtl::Sleep(interval);
       }
     
-    //------------------------------------------------------------
-    // Loop
-    //CatheterMatricesFrameList::iterator iter;
-    MatrixFrameList::iterator iter;
-    double prevTimeStamp = -1;
-
-    igtl::TimeStamp::Pointer cts;
-    cts = igtl::TimeStamp::New();
-    double stt;
-    double elapsed = 0.0;
-
-    for (iter = mFrameList.begin(); iter != mFrameList.end(); iter ++)
+    cts->GetTime();
+    stt = cts->GetTimeStamp();
+    
+    // Set up meesage
+    if (fliter->type == TYPE_TRANSFORM)
       {
-      // Wait
-      if (fUseTimeStamp)
-        {
-        int _interval; 
-        if (prevTimeStamp < 0)
-          {
-          _interval = 0;
-          }
-        else
-          {
-          _interval = (int) ((iter->ts - prevTimeStamp - elapsed) * 1000.0);
-          if (_interval < 0)
-            {
-            _interval = 0;
-            }
-          }
-        
-        std::cerr << "Time: " << elapsed << " / " << _interval << std::endl;
-        igtl::Sleep(_interval);
-        prevTimeStamp = iter->ts;
-        }
-      else
-        {
-        igtl::Sleep(interval);
-        }
-
-      cts->GetTime();
-      stt = cts->GetTimeStamp();
-      
-      if (fDeviceNameFromFile)
-        {
-        trackingMsg->SetDeviceName(iter->name.c_str());
-        }
-      else
-        {
-        trackingMsg->SetDeviceName(devName.c_str());
-        }
-      
-      SendTrackingData(socket, trackingMsg, *iter, chmask);
-      cts->GetTime();
-      elapsed = cts->GetTimeStamp() - stt;
+      transMsg->SetDeviceName(fliter->name.c_str());
+      SendTransformData(socket, transMsg, *fliter);
       }
-    
-    delete[] trackElement;
+    else if (fliter->type == TYPE_TRACKING)
+      {
+      trackingMsg->SetDeviceName(fliter->name.c_str());
+      SendTrackingData(socket, trackingMsg, *fliter, chmask);
+      }
+    else // String
+      {
+      stringMsg->SetDeviceName(fliter->name.c_str());
+      SendStringData(socket, stringMsg, *fliter);
+      }
+    cts->GetTime();
+    elapsed = cts->GetTimeStamp() - stt;
     
     }
+  delete[] trackElement;
       
 }
 
 
-void  ReadFile(std::string filename, TrackingDataList& coordinates, char delim, bool fAscending, bool fDeviceNameFromFile)
+void  ReadFile(std::string filename, RawDataList& coordinates, char delim, bool fAscending)
 {
   
   std::ifstream ifs;
@@ -505,52 +454,50 @@ void  ReadFile(std::string filename, TrackingDataList& coordinates, char delim, 
     int len = strnlen(line, 1023);
     SplitString(line, cols, delim, len);
     
-    int nvec; // Number of vectors in the line
-    if (fDeviceNameFromFile)
-      {
-      nvec = (cols.size() - 2) / 3;
-      }
-    else
-      {
-      nvec = (cols.size() - 1) / 3;
-      }
-
-    TrackingData pt;
+    RawData pt;
     pt.vectors.clear();
-
-    // First column depends on fDeviceNameFromFile
-    //   True:  Device name
-    //   False: Time stamp
     
-    int offset = 0;
-    if (fDeviceNameFromFile)
-      {
-      offset = 1;
-      pt.name = cols[0].c_str();
-      }
-    else
-      {
-      pt.name = "";
-      }
+    pt.name = cols[1].c_str();
+    pt.ts = atof(cols[2].c_str());
+    //std::cerr << cols[0] << " - "  << pt.name << std::endl;
     
-    pt.ts = atof(cols[offset+0].c_str());
-
-    for (int i = 0; i < nvec; i ++)
+    // Type
+    std::string typeStr = cols[0];
+    int offset=3;
+    if (typeStr.compare("TDATA") == 0)
       {
-      Vector v;
-      v.x = atof(cols[offset+i*3+1].c_str());
-      v.y = atof(cols[offset+i*3+2].c_str());
-      v.z = atof(cols[offset+i*3+3].c_str());
-      if (fAscending)
+      int nvec; // Number of data columns in the line
+      nvec = (cols.size() - offset) / 3;
+      pt.type = TYPE_TRACKING;
+      for (int i = 0; i < nvec; i ++)
         {
-        pt.vectors.push_back(v);
+        Vector v;
+        v.x = atof(cols[offset+i*3+0].c_str());
+        v.y = atof(cols[offset+i*3+1].c_str());
+        v.z = atof(cols[offset+i*3+2].c_str());
+        if (fAscending)
+          {
+          pt.vectors.push_back(v);
+          }
+        else
+          {
+          pt.vectors.insert(pt.vectors.begin(), v);
+          }
         }
-      else
+      }
+    else // typeStr == "STRING"
+      {
+      int nlines; // Number of columns (=lines) for string data
+      nlines = cols.size() - 3;
+      pt.type = TYPE_STRING;
+      pt.text = "";
+      for (int i = 0; i < nlines; i ++)
         {
-        pt.vectors.insert(pt.vectors.begin(), v);
+        pt.text += cols[offset+i] + "\n";
         }
       }
     // std::cerr << "Read: " << coordinates.size() << " coordinates from file." << std::endl;
+    std::cerr << "ReadFile  " << pt.name << " " << pt.type << std::endl;
     coordinates.push_back(pt);
     }
   
@@ -558,7 +505,7 @@ void  ReadFile(std::string filename, TrackingDataList& coordinates, char delim, 
 }
 
 
-void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frameList, bool fNormal)
+void  ConvertTransformData(RawDataList& coordinates, FrameList& frameList, bool fNormal)
 {
 
   frameList.clear();
@@ -566,128 +513,151 @@ void  ConvertTransformData(TrackingDataList& coordinates, MatrixFrameList& frame
   // If fNormal=true, we assume that the first and second vectors (V0 and V1) represent the tip position
   // and the catheter orientation respectively
 
-  TrackingDataList::iterator iter;
+  RawDataList::iterator iter;
 
   for (iter = coordinates.begin(); iter != coordinates.end(); iter ++)
     {
-    MatrixFrame frame;
-    frame.matrices.resize(1);
-    Matrix4x4& matrix = frame.matrices[0];
-  
-    float t[3];
-    float s[3];
-    float n[3];
-    float nlen;
-
-    // Make sure to have more than two vectors in the tracking data
-    
+    Frame frame;
     frame.ts = iter->ts;
     frame.name = iter->name;
-
-    if (fNormal)
+    
+    //std::cerr << "ConvertTransformData  " << frame.name << " " << frame.type << std::endl;
+    
+    if (iter->type == TYPE_TRACKING)
       {
-      n[0] = iter->vectors[1].x;
-      n[1] = iter->vectors[1].y;
-      n[2] = iter->vectors[1].z;
-      }
-    else
-      {
-      n[0] = iter->vectors[0].x - iter->vectors[1].x;
-      n[1] = iter->vectors[0].y - iter->vectors[1].y;
-      n[2] = iter->vectors[0].z - iter->vectors[1].z;
-      }
+      frame.type = TYPE_TRANSFORM;
+      frame.matrices.resize(1);
+      Matrix4x4& matrix = frame.matrices[0];
       
-    nlen = sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2]);
-    if (nlen > 0)
-      {
-      n[0] /= nlen;
-      n[1] /= nlen;
-      n[2] /= nlen;
+      float t[3];
+      float s[3];
+      float n[3];
+      float nlen;
+      
+      // Make sure to have more than two vectors in the tracking data
+      
+      if (fNormal)
+        {
+        n[0] = iter->vectors[1].x;
+        n[1] = iter->vectors[1].y;
+        n[2] = iter->vectors[1].z;
+        }
+      else
+        {
+        n[0] = iter->vectors[0].x - iter->vectors[1].x;
+        n[1] = iter->vectors[0].y - iter->vectors[1].y;
+        n[2] = iter->vectors[0].z - iter->vectors[1].z;
+        }
+        
+      nlen = sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2]);
+      if (nlen > 0)
+        {
+        n[0] /= nlen;
+        n[1] /= nlen;
+        n[2] /= nlen;
+        }
+      else
+        {
+        n[0] = 0.0;
+        n[1] = 0.0;
+        n[2] = 1.0;
+        }
+      
+      // Check if <n> is not parallel to <s>=(0.0, 1.0, 0.0)
+      if (n[1] < 1.0)
+        {
+        s[0] = 0.0;
+        s[1] = 1.0;
+        s[2] = 0.0;
+        igtl::Cross(t, s, n);
+        igtl::Cross(s, n, t);
+        }
+      else
+        {
+        t[0] = 1.0;
+        t[1] = 0.0;
+        t[2] = 0.0;
+        igtl::Cross(s, n, t);
+        igtl::Cross(t, s, n);
+        }
+      
+      matrix.m00 = t[0];
+      matrix.m10 = t[1];
+      matrix.m20 = t[2];
+      matrix.m01 = s[0];
+      matrix.m11 = s[1];
+      matrix.m21 = s[2];
+      matrix.m02 = n[0];
+      matrix.m12 = n[1];
+      matrix.m22 = n[2];
+      matrix.m03 = iter->vectors[0].x;
+      matrix.m13 = iter->vectors[0].y;
+      matrix.m23 = iter->vectors[0].z;
+      
+      //igtl::PrintMatrix(matrix);
       }
-    else
+    else // iter->type == TYPE_STRING
       {
-      n[0] = 0.0;
-      n[1] = 0.0;
-      n[2] = 1.0;
+      frame.type = TYPE_STRING;
+      frame.text = iter->text;
       }
-    
-    // Check if <n> is not parallel to <s>=(0.0, 1.0, 0.0)
-    if (n[1] < 1.0)
-      {
-      s[0] = 0.0;
-      s[1] = 1.0;
-      s[2] = 0.0;
-      igtl::Cross(t, s, n);
-      igtl::Cross(s, n, t);
-      }
-    else
-      {
-      t[0] = 1.0;
-      t[1] = 0.0;
-      t[2] = 0.0;
-      igtl::Cross(s, n, t);
-      igtl::Cross(t, s, n);
-      }
-    
-    matrix.m00 = t[0];
-    matrix.m10 = t[1];
-    matrix.m20 = t[2];
-    matrix.m01 = s[0];
-    matrix.m11 = s[1];
-    matrix.m21 = s[2];
-    matrix.m02 = n[0];
-    matrix.m12 = n[1];
-    matrix.m22 = n[2];
-    matrix.m03 = iter->vectors[0].x;
-    matrix.m13 = iter->vectors[0].y;
-    matrix.m23 = iter->vectors[0].z;
-    
-    //igtl::PrintMatrix(matrix);
     frameList.push_back(frame);
     }
-    
 }
 
 
-void  ConvertTrackingData(TrackingDataList& coordinates, MatrixFrameList& frameList)
+void  ConvertTrackingData(RawDataList& coordinates, FrameList& frameList)
 {
 
   frameList.clear();
   
-  TrackingDataList::iterator iter;
+  RawDataList::iterator iter;
 
   for (iter = coordinates.begin(); iter != coordinates.end(); iter ++)
     {
-    MatrixFrame frame;
-    //Current size
-    int len = iter->vectors.size();
-    frame.matrices.resize(len);
+    Frame frame;
     frame.ts = iter->ts;
     frame.name = iter->name;
-
-    for (int i = 0; i < len; i ++)
+    //std::cerr << "ConverTrackingData()  " << frame.name << " " << frame.type << std::endl;
+    
+    if (iter->type == TYPE_TRACKING)
       {
-      Matrix4x4& mat = frame.matrices[i];
-      mat.m00 = 1.0;
-      mat.m10 = 0.0;
-      mat.m20 = 0.0;
-      mat.m01 = 0.0;
-      mat.m11 = 1.0;
-      mat.m21 = 0.0;
-      mat.m02 = 0.0;
-      mat.m12 = 0.0;
-      mat.m22 = 1.0;
-      mat.m03 = iter->vectors[i].x;
-      mat.m13 = iter->vectors[i].y;
-      mat.m23 = iter->vectors[i].z;
+      frame.type = TYPE_TRACKING;
+      //Current size
+      int len = iter->vectors.size();
+      frame.type = TYPE_TRACKING;
+      frame.matrices.resize(len);
+      
+      for (int i = 0; i < len; i ++)
+        {
+        Matrix4x4& mat = frame.matrices[i];
+        mat.m00 = 1.0;
+        mat.m10 = 0.0;
+        mat.m20 = 0.0;
+        mat.m01 = 0.0;
+        mat.m11 = 1.0;
+        mat.m21 = 0.0;
+        mat.m02 = 0.0;
+        mat.m12 = 0.0;
+        mat.m22 = 1.0;
+        mat.m03 = iter->vectors[i].x;
+        mat.m13 = iter->vectors[i].y;
+        mat.m23 = iter->vectors[i].z;
+        }
+    
       }
-
+    else // iter->type == TYPE_STRING
+      {
+      frame.type = TYPE_STRING;
+      frame.text = iter->text;
+      }
     frameList.push_back(frame);
     }
+
 }
 
 
-int SendTransformData(igtl::ClientSocket::Pointer& socket, igtl::TransformMessage::Pointer& transformMsg, MatrixFrame& mat)
+int SendTransformData(igtl::ClientSocket::Pointer& socket, igtl::TransformMessage::Pointer& transformMsg, Frame& mat)
 {
   if (mat.matrices.size() < 1)
     {
@@ -719,7 +689,7 @@ int SendTransformData(igtl::ClientSocket::Pointer& socket, igtl::TransformMessag
 }
 
 
-int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, MatrixFrame& mat, std::vector<bool> mask)
+int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMessage::Pointer& trackingMsg, Frame& mat, std::vector<bool> mask)
 {
   igtl::Matrix4x4 matrix;
   igtl::TrackingDataElement::Pointer ptr;
@@ -778,6 +748,14 @@ int SendTrackingData(igtl::ClientSocket::Pointer& socket, igtl::TrackingDataMess
   return ch;
 }
 
+int   SendStringData(igtl::ClientSocket::Pointer& socket, igtl::StringMessage::Pointer& stringMsg, Frame& mat)
+{
+  std::cerr << "Sending String" << std::endl;
+  stringMsg->SetString(mat.text);
+  stringMsg->Pack();
+  socket->Send(stringMsg->GetPackPointer(), stringMsg->GetPackSize());
 
+  return 1;
+}
 
 

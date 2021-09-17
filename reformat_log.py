@@ -11,7 +11,8 @@ import operator
 
 inputFileName = None
 outputFileName = None
-delimiter = ' '
+delimiterIn = ' '
+delimiterOut = '\t'
 
 for arg in sys.argv:
     param = arg.split('=', 2)
@@ -26,17 +27,17 @@ if inputFileName==None or outputFileName==None:
     print('Usage: %s IN=<input CSV file> OUT=<outputCSV file> DEL=<delimiter>' % (sys.argv[0]))
     print('      <input CSV file>  : Input CSV file.')
     print('      <output CSV file> : Output CSV file.')
-    print("      <delimiter>       : Delimiter for CSV file. Default is ' ' (space).")
+    print("      <delimiter>       : Delimiter for input CSV file. Default is ' ' (space).")
     sys.exit()
 
 
 with open(inputFileName) as inputFile:
-    csvReader = csv.reader(inputFile, delimiter=delimiter)
+    csvReader = csv.reader(inputFile, delimiter=delimiterIn)
 
     with open(outputFileName, "w") as outputFile:
-        fileWriter = csv.writer(outputFile, delimiter=delimiter)
+        fileWriter = csv.writer(outputFile, delimiter=delimiterOut)
         for row in csvReader:
-            outrow = []
+            outrow = ['TDATA']
             for col in row:
                 if col.count('.') > 1:
                     digit = 0
